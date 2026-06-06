@@ -1,0 +1,163 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ================= ENUMS =================
+enum Role {
+  MEMBER
+  LIBRARIAN
+  ADMIN
+}
+
+enum CopyStatus {
+  AVAILABLE
+  BORROWED
+  RESERVED
+  LOST
+}
+
+enum TransactionStatus {
+  ACTIVE
+  RETURNED
+  OVERDUE
+}
+
+enum ReservationStatus {
+  PENDING
+  FULFILLED
+  CANCELLED
+}
+
+// ================= MODELS =================
+
+model User {
+  id             String         @id @default(uuid())
+  email          String         @unique
+  password       String
+  name           String
+  role           Role           @default(MEMBER)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relations
+  transactions   Transaction[]
+  reservations   Reservation[]
+  reviews        Review[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]     @relation("AdminAuditLogs")
+}
+
+model Author {
+  id        String   @id @default(uuid())
+  name      String
+  bio       String?  @db.Text
+  books     Book[]
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  books     Book[]   // Implicit Many-to-Many relation with Book
+}
+
+model Book {
+  id             String         @id @default(uuid())
+  title          String
+  description    String         @db.Text
+  isbn           String?        @unique
+  publishedYear  Int?
+  authorId       String
+  
+  // Relations
+  author         Author         @relation(fields: [authorId], references: [id])
+  categories     Category[]     // Implicit Many-to-Many relation
+  copies         BookCopy[]
+  reviews        Review[]
+  reservations   Reservation[]
+}
+
+// Fisik buku (salinan) untuk endpoint /books/:id/copies
+model BookCopy {
+  id             String         @id @default(uuid())
+  bookId         String
+  status         CopyStatus     @default(AVAILABLE)
+  
+  // Relations
+  book           Book           @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  transactions   Transaction[]
+}
+
+model Transaction {
+  id             String            @id @default(uuid())
+  userId         String
+  copyId         String
+  borrowDate     DateTime          @default(now())
+  dueDate        DateTime
+  returnDate     DateTime?
+  status         TransactionStatus @default(ACTIVE)
+  fineAmount     Int               @default(0) // Denda keterlambatan
+
+  // Relations
+  user           User              @relation(fields: [userId], references: [id])
+  copy           BookCopy          @relation(fields: [copyId], references: [id])
+}
+
+model Reservation {
+  id             String            @id @default(uuid())
+  userId         String
+  bookId         String
+  status         ReservationStatus @default(PENDING)
+  reservedAt     DateTime          @default(now())
+
+  // Relations
+  user           User              @relation(fields: [userId], references: [id])
+  book           Book              @relation(fields: [bookId], references: [id])
+}
+
+model Review {
+  id             String   @id @default(uuid())
+  userId         String
+  bookId         String
+  rating         Int      // 1-5 scale
+  comment        String?  @db.Text
+  createdAt      DateTime @default(now())
+
+  // Relations
+  user           User     @relation(fields: [userId], references: [id])
+  book           Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bookId]) // 1 user cuma bisa review 1 kali per buku
+}
+
+model Notification {
+  id             String   @id @default(uuid())
+  userId         String
+  message        String
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  // Relations
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  adminId        String
+  action         String   // e.g., "DELETE_BOOK", "UPDATE_ROLE"
+  target         String   // e.g., "BookID: 123"
+  details        String?  @db.Text
+  createdAt      DateTime @default(now())
+
+  // Relations
+  admin          User     @relation("AdminAuditLogs", fields: [adminId], references: [id])
+}
